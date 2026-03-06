@@ -1,9 +1,20 @@
+"""
+Bot de Telegram con Captcha para gestionar solicitudes de unión.
+
+Requisitos:
+    pip install python-telegram-bot==21.9
+
+Configuración:
+    1. Crea un bot con @BotFather y pega el TOKEN en la variable BOT_TOKEN
+    2. El bot debe ser administrador de cada grupo/canal con permiso
+       de "Aprobar nuevos miembros"
+    3. Activa "Aprobar nuevos miembros" en los ajustes del grupo
+"""
+
 import logging
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+import asyncio
+import os
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -14,9 +25,9 @@ from telegram.ext import (
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
-BOT_TOKEN = "TU_TOKEN_AQUI"   # 👈 Reemplaza con tu token de @BotFather
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "TU_TOKEN_AQUI")
 
-CAPTCHA_TIMEOUT = 120          # Segundos para completar el captcha
+CAPTCHA_TIMEOUT = 120  # Segundos para completar el captcha
 
 # ── Mensajes ──────────────────────────────────────────────────────────────────
 
@@ -33,12 +44,8 @@ MSG_CAPTCHA = (
     "Para unirte al grupo necesitas verificar que no eres un robot.\n\n"
     "Tienes *2 minutos* para presionar el botón:"
 )
-MSG_APROBADO = "✅ ¡Verificación exitosa! Ya puedes acceder. Bienvenido/a, {nombre}."
-MSG_TIMEOUT  = "⏰ Tu tiempo para completar el captcha expiró. Vuelve a solicitar la unión."
-MSG_RECHAZADO = "✅ Solicitud rechazada correctamente."
-
-# Canales gestionados: { chat_id: titulo }
-# Se guarda en context.bot_data["canales"]
+MSG_APROBADO  = "✅ ¡Verificación exitosa! Ya puedes acceder. Bienvenido/a, {nombre}."
+MSG_TIMEOUT   = "⏰ Tu tiempo para completar el captcha expiró. Vuelve a solicitar la unión."
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -56,10 +63,10 @@ def get_canales(context: ContextTypes.DEFAULT_TYPE) -> dict:
 
 def menu_principal() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ Agregar canal/grupo",   callback_data="menu:agregar")],
-        [InlineKeyboardButton("🗑️ Eliminar canal/grupo",  callback_data="menu:eliminar")],
-        [InlineKeyboardButton("📋 Ver canales activos",   callback_data="menu:listar")],
-        [InlineKeyboardButton("ℹ️ Cómo configurar",       callback_data="menu:ayuda")],
+        [InlineKeyboardButton("➕ Agregar canal/grupo",  callback_data="menu:agregar")],
+        [InlineKeyboardButton("🗑️ Eliminar canal/grupo", callback_data="menu:eliminar")],
+        [InlineKeyboardButton("📋 Ver canales activos",  callback_data="menu:listar")],
+        [InlineKeyboardButton("ℹ️ Cómo configurar",      callback_data="menu:ayuda")],
     ])
 
 # ── Comandos ──────────────────────────────────────────────────────────────────
@@ -76,113 +83,6 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         reply_markup=menu_principal(),
     )
 
-# ── Menú interactivo ──────────────────────────────────────────────────────────
-
-async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-    accion = query.data.split(":")[1]
-
-    # ── Agregar canal ──────────────────────────────────────────────────────────
-    if accion == "agregar":
-        await query.edit_message_text(
-            "➕ *Agregar canal o grupo*\n\n"
-            "Para registrar un canal/grupo:\n\n"
-            "1️⃣ Agrega este bot como *administrador* del canal o grupo\n"
-            "2️⃣ Activa *'Aprobar nuevos miembros'* en los ajustes del grupo\n"
-            "3️⃣ Envía el comando:\n\n"
-            "`/agregar <chat_id>`\n\n"
-            "📌 Para obtener el chat\\_id, reenvía un mensaje del grupo al bot "
-            "@userinfobot o usa @RawDataBot.",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Volver al menú", callback_data="menu:volver")]
-            ]),
-        )
-
-    # ── Eliminar canal ─────────────────────────────────────────────────────────
-    elif accion == "eliminar":
-        canales = get_canales(context)
-        if not canales:
-            texto = "⚠️ No tienes ningún canal registrado aún."
-            botones = [[InlineKeyboardButton("🔙 Volver", callback_data="menu:volver")]]
-        else:
-            texto = "🗑️ *Selecciona el canal que deseas eliminar:*"
-            botones = [
-                [InlineKeyboardButton(f"❌ {titulo}", callback_data=f"del:{cid}")]
-                for cid, titulo in canales.items()
-            ]
-            botones.append([InlineKeyboardButton("🔙 Volver", callback_data="menu:volver")])
-
-        await query.edit_message_text(
-            texto,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(botones),
-        )
-
-    # ── Listar canales ─────────────────────────────────────────────────────────
-    elif accion == "listar":
-        canales = get_canales(context)
-        if not canales:
-            texto = "📋 *Canales activos*\n\nNo hay ningún canal registrado todavía."
-        else:
-            lista = "\n".join(f"• {titulo} (`{cid}`)" for cid, titulo in canales.items())
-            texto = f"📋 *Canales activos ({len(canales)}):*\n\n{lista}"
-
-        await query.edit_message_text(
-            texto,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Volver al menú", callback_data="menu:volver")]
-            ]),
-        )
-
-    # ── Ayuda de configuración ─────────────────────────────────────────────────
-    elif accion == "ayuda":
-        await query.edit_message_text(
-            "ℹ️ *¿Cómo funciona el captcha?*\n\n"
-            "1. Un usuario solicita unirse a tu canal/grupo\n"
-            "2. El bot le envía un mensaje privado con el botón *'No soy un robot'*\n"
-            "3. Si lo presiona en *2 minutos* → se aprueba su entrada ✅\n"
-            "4. Si no responde a tiempo → se rechaza automáticamente ❌\n\n"
-            "⚠️ *Requisitos:*\n"
-            "• El bot debe ser *administrador* del canal\n"
-            "• El usuario debe haber iniciado el bot al menos una vez\n"
-            "• Debe estar activo *'Aprobar nuevos miembros'* en el grupo",
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔙 Volver al menú", callback_data="menu:volver")]
-            ]),
-        )
-
-    # ── Volver al menú principal ───────────────────────────────────────────────
-    elif accion == "volver":
-        await query.edit_message_text(
-            MSG_HELP,
-            parse_mode="Markdown",
-            reply_markup=menu_principal(),
-        )
-
-
-async def handle_eliminar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Elimina un canal del registro al presionar su botón."""
-    query = update.callback_query
-    await query.answer()
-
-    chat_id_str = query.data.split(":")[1]
-    canales = get_canales(context)
-    titulo = canales.pop(chat_id_str, "Canal desconocido")
-
-    await query.edit_message_text(
-        f"✅ Canal *{titulo}* eliminado correctamente.\n\n"
-        "Los usuarios ya no recibirán captcha para ese canal.",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔙 Volver al menú", callback_data="menu:volver")]
-        ]),
-    )
-
-# ── Comando /agregar ───────────────────────────────────────────────────────────
 
 async def cmd_agregar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Registra un canal: /agregar <chat_id>"""
@@ -215,16 +115,114 @@ async def cmd_agregar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
     logger.info("Canal agregado: %s (%s)", chat.title, chat_id_str)
 
+# ── Menú interactivo ──────────────────────────────────────────────────────────
+
+async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    accion = query.data.split(":")[1]
+
+    if accion == "agregar":
+        await query.edit_message_text(
+            "➕ *Agregar canal o grupo*\n\n"
+            "Para registrar un canal/grupo:\n\n"
+            "1️⃣ Agrega este bot como *administrador* del canal o grupo\n"
+            "2️⃣ Activa *'Aprobar nuevos miembros'* en los ajustes del grupo\n"
+            "3️⃣ Envía el comando:\n\n"
+            "`/agregar <chat_id>`\n\n"
+            "📌 Para obtener el chat\\_id, reenvía un mensaje del grupo al bot "
+            "@userinfobot o usa @RawDataBot.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Volver al menú", callback_data="menu:volver")]
+            ]),
+        )
+
+    elif accion == "eliminar":
+        canales = get_canales(context)
+        if not canales:
+            texto   = "⚠️ No tienes ningún canal registrado aún."
+            botones = [[InlineKeyboardButton("🔙 Volver", callback_data="menu:volver")]]
+        else:
+            texto   = "🗑️ *Selecciona el canal que deseas eliminar:*"
+            botones = [
+                [InlineKeyboardButton(f"❌ {titulo}", callback_data=f"del:{cid}")]
+                for cid, titulo in canales.items()
+            ]
+            botones.append([InlineKeyboardButton("🔙 Volver", callback_data="menu:volver")])
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(botones),
+        )
+
+    elif accion == "listar":
+        canales = get_canales(context)
+        if not canales:
+            texto = "📋 *Canales activos*\n\nNo hay ningún canal registrado todavía."
+        else:
+            lista = "\n".join(f"• {titulo} (`{cid}`)" for cid, titulo in canales.items())
+            texto = f"📋 *Canales activos ({len(canales)}):*\n\n{lista}"
+
+        await query.edit_message_text(
+            texto,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Volver al menú", callback_data="menu:volver")]
+            ]),
+        )
+
+    elif accion == "ayuda":
+        await query.edit_message_text(
+            "ℹ️ *¿Cómo funciona el captcha?*\n\n"
+            "1. Un usuario solicita unirse a tu canal/grupo\n"
+            "2. El bot le envía un mensaje privado con el botón *'No soy un robot'*\n"
+            "3. Si lo presiona en *2 minutos* → se aprueba su entrada ✅\n"
+            "4. Si no responde a tiempo → se rechaza automáticamente ❌\n\n"
+            "⚠️ *Requisitos:*\n"
+            "• El bot debe ser *administrador* del canal\n"
+            "• El usuario debe haber iniciado el bot al menos una vez\n"
+            "• Debe estar activo *'Aprobar nuevos miembros'* en el grupo",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 Volver al menú", callback_data="menu:volver")]
+            ]),
+        )
+
+    elif accion == "volver":
+        await query.edit_message_text(
+            MSG_HELP,
+            parse_mode="Markdown",
+            reply_markup=menu_principal(),
+        )
+
+
+async def handle_eliminar_canal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    chat_id_str = query.data.split(":")[1]
+    canales = get_canales(context)
+    titulo  = canales.pop(chat_id_str, "Canal desconocido")
+
+    await query.edit_message_text(
+        f"✅ Canal *{titulo}* eliminado correctamente.\n\n"
+        "Los usuarios ya no recibirán captcha para ese canal.",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔙 Volver al menú", callback_data="menu:volver")]
+        ]),
+    )
+
 # ── Captcha ────────────────────────────────────────────────────────────────────
 
 async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Se activa cuando alguien solicita unirse a un canal gestionado."""
     join_request = update.chat_join_request
-    user  = join_request.from_user
-    chat  = join_request.chat
+    user = join_request.from_user
+    chat = join_request.chat
     chat_id_str = str(chat.id)
 
-    # Solo actuar en canales registrados
     canales = get_canales(context)
     if chat_id_str not in canales:
         return
@@ -244,7 +242,6 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=keyboard,
         )
 
-        # Job de expiración
         context.job_queue.run_once(
             expire_captcha,
             when=CAPTCHA_TIMEOUT,
@@ -262,7 +259,6 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def handle_captcha_response(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """El usuario presiona '🤖 No soy un robot'."""
     query = update.callback_query
     await query.answer()
 
@@ -270,7 +266,6 @@ async def handle_captcha_response(update: Update, context: ContextTypes.DEFAULT_
     chat_id = int(chat_id_str)
     user_id = int(user_id_str)
 
-    # Verificar que quien presiona es el destinatario del captcha
     if query.from_user.id != user_id:
         await query.answer("⚠️ Este captcha no es para ti.", show_alert=True)
         return
@@ -281,7 +276,6 @@ async def handle_captcha_response(update: Update, context: ContextTypes.DEFAULT_
         await context.bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
         logger.info("Aprobado: %s (id=%s)", nombre, user_id)
 
-        # Cancelar expiración
         for job in context.job_queue.get_jobs_by_name(f"expire:{chat_id}:{user_id}"):
             job.schedule_removal()
 
@@ -293,7 +287,6 @@ async def handle_captcha_response(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def expire_captcha(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Rechaza la solicitud si el captcha no se completó a tiempo."""
     data    = context.job.data
     user_id = data["user_id"]
     chat_id = data["chat_id"]
@@ -313,25 +306,26 @@ async def expire_captcha(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main() -> None:
+async def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Comandos
     app.add_handler(CommandHandler("start",   cmd_start))
     app.add_handler(CommandHandler("help",    cmd_help))
     app.add_handler(CommandHandler("agregar", cmd_agregar))
 
-    # Menú de botones
     app.add_handler(CallbackQueryHandler(handle_menu,           pattern=r"^menu:"))
     app.add_handler(CallbackQueryHandler(handle_eliminar_canal, pattern=r"^del:"))
 
-    # Captcha
     app.add_handler(ChatJoinRequestHandler(handle_join_request))
     app.add_handler(CallbackQueryHandler(handle_captcha_response, pattern=r"^captcha:"))
 
     logger.info("Bot iniciado. Esperando eventos...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    async with app:
+        await app.start()
+        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        await app.updater.idle()
+        await app.stop()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
