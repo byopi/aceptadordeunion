@@ -1,16 +1,3 @@
-"""
-Bot de Telegram con Captcha para gestionar solicitudes de unión.
-
-Requisitos:
-    pip install python-telegram-bot==21.9
-
-Configuración:
-    1. Crea un bot con @BotFather y pega el TOKEN en la variable BOT_TOKEN
-    2. El bot debe ser administrador de cada grupo/canal con permiso
-       de "Aprobar nuevos miembros"
-    3. Activa "Aprobar nuevos miembros" en los ajustes del grupo
-"""
-
 import logging
 import asyncio
 import os
@@ -306,7 +293,7 @@ async def expire_captcha(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-async def main() -> None:
+def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start",   cmd_start))
@@ -320,12 +307,13 @@ async def main() -> None:
     app.add_handler(CallbackQueryHandler(handle_captcha_response, pattern=r"^captcha:"))
 
     logger.info("Bot iniciado. Esperando eventos...")
-    async with app:
-        await app.start()
-        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        await app.updater.idle()
-        await app.stop()
+    app.run_polling(allowed_updates=Update.ALL_TYPES, close_loop=False)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import sys
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    main()
